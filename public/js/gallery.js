@@ -330,27 +330,63 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
           console.error(e);
         }
-      } else {
-        if (statusText) statusText.textContent = 'Error';
-        try {
-          const errRes = JSON.parse(xhr.responseText);
-          if (errRes.errors) {
-            alert(Object.values(errRes.errors).flat().join('\n'));
+        setTimeout(() => {
+          row.remove();
+          if (uploadItemsList && uploadItemsList.children.length === 0) {
+            if (uploadCard) uploadCard.classList.remove('active');
           }
-        } catch (e) {}
+        }, 3000);
+      } else {
+        if (statusText) {
+          statusText.textContent = 'Error';
+          statusText.classList.add('error');
+        }
+        let errorDetail = 'Upload failed.';
+        if (xhr.status === 413) {
+          errorDetail = 'File size exceeds server upload limit (HTTP 413 Payload Too Large).';
+        } else {
+          try {
+            const errRes = JSON.parse(xhr.responseText);
+            if (errRes.errors) {
+              errorDetail = Object.values(errRes.errors).flat().join(' ');
+            } else if (errRes.message) {
+              errorDetail = errRes.message;
+            }
+          } catch (e) {
+            errorDetail = `Server error (${xhr.status}). Check PHP/Nginx limits.`;
+          }
+        }
+
+        const errDiv = document.createElement('div');
+        errDiv.className = 'upload-item-error-msg';
+        errDiv.textContent = errorDetail;
+        row.appendChild(errDiv);
+
+        setTimeout(() => {
+          row.remove();
+          if (uploadItemsList && uploadItemsList.children.length === 0) {
+            if (uploadCard) uploadCard.classList.remove('active');
+          }
+        }, 10000);
       }
+    };
+
+    xhr.onerror = () => {
+      if (statusText) {
+        statusText.textContent = 'Failed';
+        statusText.classList.add('error');
+      }
+      const errDiv = document.createElement('div');
+      errDiv.className = 'upload-item-error-msg';
+      errDiv.textContent = 'Network or connection error during upload.';
+      row.appendChild(errDiv);
 
       setTimeout(() => {
         row.remove();
         if (uploadItemsList && uploadItemsList.children.length === 0) {
           if (uploadCard) uploadCard.classList.remove('active');
         }
-      }, 3000);
-    };
-
-    xhr.onerror = () => {
-      if (statusText) statusText.textContent = 'Failed';
-      setTimeout(() => row.remove(), 4000);
+      }, 10000);
     };
 
     xhr.send(formData);
