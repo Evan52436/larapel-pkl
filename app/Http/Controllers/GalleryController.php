@@ -66,7 +66,7 @@ class GalleryController extends Controller
 
             // Stream file to storage to minimize RAM usage on 4GB hardware
             $stream = fopen($file->getRealPath(), 'r+');
-            Storage::disk($disk)->putStream($objectKey, $stream);
+            Storage::disk($disk)->writeStream($objectKey, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
             }
