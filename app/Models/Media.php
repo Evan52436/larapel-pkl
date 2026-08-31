@@ -13,6 +13,7 @@ class Media extends Model
 
     protected $fillable = [
         'uuid',
+        'folder_id',
         'disk',
         'path',
         'thumbnail_path',
@@ -121,5 +122,13 @@ class Media extends Model
     public function getFormattedSizeAttribute(): string
     {
         return $this->formattedSize();
+    }
+
+    /**
+     * Folder relationship.
+     */
+    public function folder()
+    {
+        return $this->belongsTo(Folder::class);
     }
 }

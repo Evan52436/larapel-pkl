@@ -4,20 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token() }}">
-  <title>Media Gallery — Home Lab Storage</title>
+  <title>chargerleptop's Gallery</title>
   <link rel="stylesheet" href="{{ asset('css/gallery.css') }}">
 </head>
 <body>
 
+  <input type="hidden" id="active-folder-id" value="{{ $currentFolder?->id }}">
+
   <!-- App Header & Batch Bar -->
   <header class="app-header">
-    <div class="header-title">
+    <a href="{{ route('gallery.index') }}" class="header-title">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
         <circle cx="8.5" cy="8.5" r="1.5"/>
         <polyline points="21 15 16 10 5 21"/>
       </svg>
-      <span>Media Gallery</span>
+      <span>chargerleptop's Gallery</span>
+    </a>
+
+    <div class="header-actions">
+      <button type="button" class="btn-secondary" id="new-folder-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+        New Folder
+      </button>
     </div>
 
     <div class="batch-bar" id="batch-bar" style="display: none;">
@@ -40,15 +49,77 @@
   <!-- Main Container -->
   <main class="main-container">
 
+    <!-- Breadcrumbs Navigation -->
+    <nav class="breadcrumb-nav">
+      <a href="{{ route('gallery.index') }}" class="breadcrumb-item {{ !$currentFolder ? 'active' : '' }}">Home</a>
+      @foreach($breadcrumbs as $crumb)
+        <span class="breadcrumb-separator">/</span>
+        <a href="{{ route('gallery.index', ['folder_id' => $crumb['id']]) }}" class="breadcrumb-item {{ $loop->last ? 'active' : '' }}">{{ $crumb['name'] }}</a>
+      @endforeach
+    </nav>
+
     <!-- Empty State -->
-    <div class="empty-state" id="empty-state" style="{{ $media->total() === 0 ? 'display: flex;' : 'display: none;' }}">
+    <div class="empty-state" id="empty-state" style="{{ ($media->total() === 0 && $folders->count() === 0) ? 'display: flex;' : 'display: none;' }}">
       <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 1rem;">
         <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
         <line x1="9" y1="9" x2="15" y2="15"/>
         <line x1="15" y1="9" x2="9" y2="15"/>
       </svg>
-      <p>Nothing here yet — drop in your first photo or video</p>
+      <p>Nothing here yet — drop in your first photo or video, or create a folder</p>
     </div>
+
+    <!-- Folders Grid Section -->
+    @if($folders->count() > 0)
+      <div class="section-label">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Folders
+      </div>
+      <div class="folders-grid" id="folders-grid">
+        @foreach($folders as $folder)
+          <div class="folder-card" data-id="{{ $folder->id }}" data-name="{{ $folder->name }}">
+            <div class="folder-info">
+              <div class="folder-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div>
+                <div class="folder-name" title="{{ $folder->name }}">{{ $folder->name }}</div>
+                <div class="folder-meta">{{ $folder->media_count }} file(s)</div>
+              </div>
+            </div>
+            <div class="kebab-wrapper">
+              <button type="button" class="kebab-btn" title="Options">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+              </button>
+              <div class="kebab-menu">
+                <button type="button" class="menu-item rename-folder-item">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                  Rename
+                </button>
+                <button type="button" class="menu-item delete-folder-item">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  Delete
+                </button>
+              </div>
+              <div class="popover-confirm">
+                <div class="popover-title">Delete folder & files?</div>
+                <div class="popover-actions">
+                  <button type="button" class="popover-btn cancel-popover-btn">Cancel</button>
+                  <button type="button" class="popover-btn delete-confirm delete-confirm-btn">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        @endforeach
+      </div>
+    @endif
+
+    <!-- Files Section Label -->
+    @if($folders->count() > 0 && $media->total() > 0)
+      <div class="section-label">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Files
+      </div>
+    @endif
 
     <!-- Media Grid -->
     <div class="gallery-grid"
@@ -94,6 +165,10 @@
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Download
               </a>
+              <button type="button" class="menu-item rename-menu-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                Rename
+              </button>
               <button type="button" class="menu-item delete-menu-item">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 Delete
@@ -121,6 +196,30 @@
       <div class="spinner" id="scroll-spinner"></div>
     </div>
   </main>
+
+  <!-- New Folder Modal -->
+  <div class="modal-overlay" id="new-folder-modal">
+    <div class="modal-card">
+      <div class="modal-header">New Folder</div>
+      <input type="text" id="new-folder-name" class="modal-input" placeholder="Untitled folder">
+      <div class="modal-actions">
+        <button type="button" class="popover-btn" id="create-folder-cancel-btn">Cancel</button>
+        <button type="button" class="btn-primary" id="create-folder-confirm-btn">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Modal -->
+  <div class="modal-overlay" id="rename-modal">
+    <div class="modal-card">
+      <div class="modal-header">Rename</div>
+      <input type="text" id="rename-input" class="modal-input" placeholder="Enter new name">
+      <div class="modal-actions">
+        <button type="button" class="popover-btn" id="rename-cancel-btn">Cancel</button>
+        <button type="button" class="btn-primary" id="rename-save-btn">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Uploading Status Floating Card -->
   <div class="upload-card" id="upload-card">

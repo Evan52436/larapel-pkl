@@ -1,8 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  const activeFolderId = document.getElementById('active-folder-id')?.value || null;
+
   const fileInput = document.getElementById('gallery-file-input');
   const fabBtn = document.getElementById('fab-upload');
   const galleryGrid = document.getElementById('gallery-grid');
+  const foldersGrid = document.getElementById('folders-grid');
   const emptyState = document.getElementById('empty-state');
   const batchBar = document.getElementById('batch-bar');
   const selectedCountEl = document.getElementById('selected-count');
@@ -15,7 +18,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const spinner = document.getElementById('scroll-spinner');
   const dragOverlay = document.getElementById('drag-overlay');
 
-  // Lightbox Modal elements
+  // New Folder Modal
+  const newFolderBtn = document.getElementById('new-folder-btn');
+  const newFolderModal = document.getElementById('new-folder-modal');
+  const newFolderNameInput = document.getElementById('new-folder-name');
+  const createFolderConfirmBtn = document.getElementById('create-folder-confirm-btn');
+  const createFolderCancelBtn = document.getElementById('create-folder-cancel-btn');
+
+  // Rename Modal
+  const renameModal = document.getElementById('rename-modal');
+  const renameInput = document.getElementById('rename-input');
+  const renameSaveBtn = document.getElementById('rename-save-btn');
+  const renameCancelBtn = document.getElementById('rename-cancel-btn');
+  let itemToRename = null; // { type: 'file'|'folder', id: 123, element: HTMLElement }
+
+  // Lightbox Modal
   const lightboxModal = document.getElementById('lightbox-modal');
   const lightboxTitle = document.getElementById('lightbox-title');
   const lightboxContainer = document.getElementById('lightbox-container');
@@ -27,8 +44,82 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastPage = parseInt(galleryGrid?.dataset.lastPage || '1');
   let isLoading = false;
 
-  // Initialize Tile Event Listeners
+  // Initialize Listeners
   attachTileListeners(document);
+  attachFolderListeners(document);
+
+  // New Folder Dialog Triggers
+  if (newFolderBtn && newFolderModal) {
+    newFolderBtn.addEventListener('click', () => {
+      if (newFolderNameInput) newFolderNameInput.value = '';
+      newFolderModal.classList.add('active');
+      if (newFolderNameInput) newFolderNameInput.focus();
+    });
+  }
+
+  if (createFolderCancelBtn && newFolderModal) {
+    createFolderCancelBtn.addEventListener('click', () => {
+      newFolderModal.classList.remove('active');
+    });
+  }
+
+  if (createFolderConfirmBtn) {
+    createFolderConfirmBtn.addEventListener('click', async () => {
+      const name = newFolderNameInput?.value.trim();
+      if (!name) return;
+
+      try {
+        const response = await fetch('/gallery/folders', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({
+            name: name,
+            parent_id: activeFolderId
+          })
+        });
+
+        if (response.ok) {
+          const res = await response.json();
+          newFolderModal.classList.remove('active');
+          window.location.reload();
+        } else {
+          alert('Failed to create folder.');
+        }
+      } catch (err) {
+        console.error('Folder creation error:', err);
+      }
+    });
+  }
+
+  // Rename Modal Action Handlers
+  if (renameCancelBtn && renameModal) {
+    renameCancelBtn.addEventListener('click', () => {
+      renameModal.classList.remove('active');
+      itemToRename = null;
+    });
+  }
+
+  if (renameSaveBtn) {
+    renameSaveBtn.addEventListener('click', async () => {
+      if (!itemToRename) return;
+      const newName = renameInput?.value.trim();
+      if (!newName) return;
+
+      if (itemToRename.type === 'file') {
+        await renameMediaItem(itemToRename.id, newName, itemToRename.element);
+      } else if (itemToRename.type === 'folder') {
+        await renameFolderItem(itemToRename.id, newName, itemToRename.element);
+      }
+
+      renameModal.classList.remove('active');
+      itemToRename = null;
+    });
+  }
 
   // FAB Trigger
   if (fabBtn && fileInput) {
@@ -61,11 +152,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Batch Toolbar Actions
-  if (deselectBtn) {
-    deselectBtn.addEventListener('click', clearSelection);
-  }
+  if (deselectBtn) deselectBtn.addEventListener('click', clearSelection);
 
-  if (selectAllBtn) {
+  if (selectAllBtn && galleryGrid) {
     selectAllBtn.addEventListener('click', () => {
       const allTiles = galleryGrid.querySelectorAll('.media-tile');
       allTiles.forEach(tile => {
@@ -97,8 +186,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!e.target.closest('.kebab-wrapper')) {
       document.querySelectorAll('.kebab-menu.active, .popover-confirm.active').forEach(el => {
         el.classList.remove('active');
-        const tile = el.closest('.media-tile');
-        if (tile) tile.classList.remove('menu-open');
+        const parent = el.closest('.media-tile') || el.closest('.folder-card');
+        if (parent) parent.classList.remove('menu-open');
       });
     }
   });
@@ -115,9 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Lightbox Close Handlers
-  if (lightboxClose) {
-    lightboxClose.addEventListener('click', closeLightbox);
-  }
+  if (lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
   if (lightboxModal) {
     lightboxModal.addEventListener('click', (e) => {
       if (e.target === lightboxModal || e.target.classList.contains('lightbox-content')) {
@@ -131,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Helper Functions
+  // Helper Functions for Media Tiles
   function attachTileListeners(context) {
     const tiles = context.querySelectorAll('.media-tile');
     tiles.forEach(tile => {
@@ -142,12 +229,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const checkbox = tile.querySelector('.custom-checkbox');
       const kebabBtn = tile.querySelector('.kebab-btn');
       const kebabMenu = tile.querySelector('.kebab-menu');
+      const renameMenuBtn = tile.querySelector('.rename-menu-item');
       const deleteMenuBtn = tile.querySelector('.delete-menu-item');
       const popoverConfirm = tile.querySelector('.popover-confirm');
       const cancelPopoverBtn = tile.querySelector('.cancel-popover-btn');
       const deleteConfirmBtn = tile.querySelector('.delete-confirm-btn');
 
-      // Checkbox click
       if (checkbox) {
         checkbox.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -155,11 +242,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Kebab button click
       if (kebabBtn && kebabMenu) {
         kebabBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          // Close other open menus
           document.querySelectorAll('.kebab-menu.active, .popover-confirm.active').forEach(el => {
             if (el !== kebabMenu) el.classList.remove('active');
           });
@@ -170,7 +255,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Delete menu item click -> opens popover
+      if (renameMenuBtn) {
+        renameMenuBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (kebabMenu) kebabMenu.classList.remove('active');
+          itemToRename = { type: 'file', id: id, element: tile };
+          if (renameInput) renameInput.value = tile.dataset.name || '';
+          if (renameModal) renameModal.classList.add('active');
+          if (renameInput) renameInput.focus();
+        });
+      }
+
       if (deleteMenuBtn && popoverConfirm) {
         deleteMenuBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -179,7 +274,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Cancel popover
       if (cancelPopoverBtn && popoverConfirm) {
         cancelPopoverBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -188,7 +282,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Confirm delete in popover
       if (deleteConfirmBtn) {
         deleteConfirmBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
@@ -196,13 +289,84 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      // Tile click -> Lightbox preview
       tile.addEventListener('click', (e) => {
         if (e.target.closest('.select-checkbox-wrapper') || e.target.closest('.kebab-wrapper')) {
           return;
         }
         openLightbox(tile.dataset);
       });
+    });
+  }
+
+  // Helper Functions for Folder Cards
+  function attachFolderListeners(context) {
+    const folderCards = context.querySelectorAll('.folder-card');
+    folderCards.forEach(card => {
+      if (card.dataset.bound) return;
+      card.dataset.bound = 'true';
+
+      const id = card.dataset.id;
+      const name = card.dataset.name;
+      const kebabBtn = card.querySelector('.kebab-btn');
+      const kebabMenu = card.querySelector('.kebab-menu');
+      const renameMenuBtn = card.querySelector('.rename-folder-item');
+      const deleteMenuBtn = card.querySelector('.delete-folder-item');
+      const popoverConfirm = card.querySelector('.popover-confirm');
+      const cancelPopoverBtn = card.querySelector('.cancel-popover-btn');
+      const deleteConfirmBtn = card.querySelector('.delete-confirm-btn');
+
+      // Click card to navigate into folder
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.kebab-wrapper')) return;
+        window.location.href = `/gallery?folder_id=${id}`;
+      });
+
+      if (kebabBtn && kebabMenu) {
+        kebabBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          document.querySelectorAll('.kebab-menu.active, .popover-confirm.active').forEach(el => {
+            if (el !== kebabMenu) el.classList.remove('active');
+          });
+
+          const isActive = kebabMenu.classList.toggle('active');
+          card.classList.toggle('menu-open', isActive);
+          if (popoverConfirm) popoverConfirm.classList.remove('active');
+        });
+      }
+
+      if (renameMenuBtn) {
+        renameMenuBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (kebabMenu) kebabMenu.classList.remove('active');
+          itemToRename = { type: 'folder', id: id, element: card };
+          if (renameInput) renameInput.value = card.dataset.name || '';
+          if (renameModal) renameModal.classList.add('active');
+          if (renameInput) renameInput.focus();
+        });
+      }
+
+      if (deleteMenuBtn && popoverConfirm) {
+        deleteMenuBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (kebabMenu) kebabMenu.classList.remove('active');
+          popoverConfirm.classList.add('active');
+        });
+      }
+
+      if (cancelPopoverBtn && popoverConfirm) {
+        cancelPopoverBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          popoverConfirm.classList.remove('active');
+          card.classList.remove('menu-open');
+        });
+      }
+
+      if (deleteConfirmBtn) {
+        deleteConfirmBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await deleteFolderItem(id);
+        });
+      }
     });
   }
 
@@ -233,10 +397,59 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!batchBar || !selectedCountEl) return;
     const count = selectedIds.size;
     selectedCountEl.textContent = count;
-    if (count > 0) {
-      batchBar.style.display = 'flex';
-    } else {
-      batchBar.style.display = 'none';
+    batchBar.style.display = count > 0 ? 'flex' : 'none';
+  }
+
+  async function renameMediaItem(id, newName, tile) {
+    try {
+      const response = await fetch(`/gallery/media/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ original_name: newName })
+      });
+
+      if (response.ok) {
+        tile.dataset.name = newName;
+        const filenameEl = tile.querySelector('.tile-filename');
+        if (filenameEl) {
+          filenameEl.textContent = newName;
+          filenameEl.title = newName;
+        }
+      } else {
+        alert('Failed to rename file.');
+      }
+    } catch (err) {
+      console.error('Rename file error:', err);
+    }
+  }
+
+  async function renameFolderItem(id, newName, card) {
+    try {
+      const response = await fetch(`/gallery/folders/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ name: newName })
+      });
+
+      if (response.ok) {
+        card.dataset.name = newName;
+        const folderNameEl = card.querySelector('.folder-name');
+        if (folderNameEl) folderNameEl.textContent = newName;
+      } else {
+        alert('Failed to rename folder.');
+      }
+    } catch (err) {
+      console.error('Rename folder error:', err);
     }
   }
 
@@ -265,9 +478,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  async function deleteFolderItem(id) {
+    const card = foldersGrid?.querySelector(`.folder-card[data-id="${id}"]`);
+    try {
+      const response = await fetch(`/gallery/folders/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'X-CSRF-TOKEN': csrfToken,
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+
+      if (response.ok) {
+        if (card) card.remove();
+        checkEmptyState();
+      } else {
+        alert('Failed to delete folder.');
+      }
+    } catch (err) {
+      console.error('Delete folder error:', err);
+    }
+  }
+
   function checkEmptyState() {
-    const remainingTiles = galleryGrid.querySelectorAll('.media-tile');
-    if (remainingTiles.length === 0) {
+    const remainingTiles = galleryGrid?.querySelectorAll('.media-tile');
+    const remainingFolders = foldersGrid?.querySelectorAll('.folder-card');
+    if ((!remainingTiles || remainingTiles.length === 0) && (!remainingFolders || remainingFolders.length === 0)) {
       if (emptyState) emptyState.style.display = 'flex';
     }
   }
@@ -300,6 +537,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const formData = new FormData();
     formData.append('files[]', file);
+    if (activeFolderId) {
+      formData.append('folder_id', activeFolderId);
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/gallery/upload', true);
@@ -393,6 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderNewTile(item) {
+    if (!galleryGrid) return;
     const tileHtml = createTileHtml(item);
     galleryGrid.insertAdjacentHTML('afterbegin', tileHtml);
     const newTile = galleryGrid.querySelector(`.media-tile[data-id="${item.id}"]`);
@@ -441,6 +682,10 @@ document.addEventListener('DOMContentLoaded', () => {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download
             </a>
+            <button type="button" class="menu-item rename-menu-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+              Rename
+            </button>
             <button type="button" class="menu-item delete-menu-item">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               Delete
@@ -465,7 +710,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       const nextPage = currentPage + 1;
-      const res = await fetch(`/gallery?page=${nextPage}&format=json`, {
+      let url = `/gallery?page=${nextPage}&format=json`;
+      if (activeFolderId) url += `&folder_id=${activeFolderId}`;
+
+      const res = await fetch(url, {
         headers: {
           'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'

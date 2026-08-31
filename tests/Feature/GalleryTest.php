@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Folder;
 use App\Models\Media;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Route;
@@ -14,7 +15,11 @@ class GalleryTest extends TestCase
     {
         $this->assertTrue(Route::has('gallery.index'));
         $this->assertTrue(Route::has('gallery.upload'));
+        $this->assertTrue(Route::has('gallery.media.update'));
         $this->assertTrue(Route::has('gallery.destroy'));
+        $this->assertTrue(Route::has('gallery.folders.store'));
+        $this->assertTrue(Route::has('gallery.folders.update'));
+        $this->assertTrue(Route::has('gallery.folders.destroy'));
     }
 
     public function test_media_model_formatting_methods()
@@ -57,5 +62,14 @@ class GalleryTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJsonValidationErrors(['files.0']);
+    }
+
+    public function test_folder_instantiation_uuid()
+    {
+        $folder = new Folder(['name' => 'Vacation Photos']);
+        $folder->uuid = (string) \Illuminate\Support\Str::uuid();
+
+        $this->assertNotEmpty($folder->uuid);
+        $this->assertEquals('Vacation Photos', $folder->name);
     }
 }
