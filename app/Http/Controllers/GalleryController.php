@@ -41,6 +41,7 @@ class GalleryController extends Controller
             'files' => ['required', 'array', 'min:1'],
             'files.*' => ['required', 'file', 'mimes:jpg,jpeg,png,gif,webp,heic,mp4,mov,webm'],
         ], [
+            'files.*.uploaded' => 'File upload failed. The file likely exceeds PHP\'s upload_max_filesize or post_max_size limit on the server.',
             'files.*.mimes' => 'Unsupported file format. Allowed: JPG, PNG, GIF, WEBP, HEIC, MP4, MOV, WEBM.',
         ]);
 
